@@ -68,13 +68,30 @@ test('j/k navigate adjacent fixture files and clamp at either end', () => {
   s.dom.window.close();
 });
 
-test('x marks the current file once and Space clicks collapse and expand', () => {
+test('x marks viewed and advances, stays at the last file, and suppresses held-key repeats', () => {
   const s = setup();
   const viewed = s.files[0].querySelector('button[aria-pressed]');
   s.press('x');
+  assert.equal(viewed.getAttribute('aria-pressed'), 'true');
+  assert.equal(s.document.activeElement, s.files[1]);
+  assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
+  s.dispatch('x', 'keydown', { repeat: true });
+  s.dispatch('x', 'keyup');
+  assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
+  s.press('x');
+  s.press('x');
+  assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'true');
+  assert.equal(s.document.activeElement, s.files[1]);
+  s.press('k');
   s.press('x');
   assert.equal(viewed.getAttribute('aria-pressed'), 'true');
-  assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
+  assert.equal(s.document.activeElement, s.files[1]);
+  assert.deepEqual(s.nativeEvents, []);
+  s.dom.window.close();
+});
+
+test('Space clicks collapse and expand without toggling on held-key repeats', () => {
+  const s = setup();
   const tooltip = s.document.getElementById(s.files[0].querySelector('button').getAttribute('aria-labelledby'));
   s.press(' ');
   assert.equal(tooltip.textContent, 'Expand file');

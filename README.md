@@ -14,7 +14,7 @@ A Chrome Manifest V3 extension for GitHub pull request **Files changed** pages (
 | --- | --- |
 | `j` | Move to the next file |
 | `k` | Move to the previous file |
-| `x` | Mark the current file as viewed (leaves already viewed files viewed) |
+| `x` | Mark the current file as viewed and advance to the next file (leaves already viewed files viewed) |
 | Space | Collapse or expand the current file |
 | `p` | Open GitHub's Submit review dialog |
 

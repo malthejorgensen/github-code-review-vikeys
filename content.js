@@ -124,7 +124,12 @@
     select(current);
     if (event.key === 'x') {
       const button = viewedButton(current);
-      if (button && !button.disabled && button.getAttribute('aria-pressed') !== 'true') button.click();
+      if (!button || button.disabled) return;
+      const nextId = list[list.indexOf(current) + 1]?.id;
+      if (button.getAttribute('aria-pressed') !== 'true') button.click();
+      // Clicking Viewed can rerender the diff, so resolve the next file again.
+      const next = nextId && files().find(file => file.id === nextId);
+      if (next) select(next, true);
     } else if (event.key === ' ') {
       const button = collapseButton(current);
       if (button && !button.disabled) button.click();
