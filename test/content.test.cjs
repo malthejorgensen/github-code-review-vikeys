@@ -68,7 +68,7 @@ test('j/k navigate adjacent fixture files and clamp at either end', () => {
   s.dom.window.close();
 });
 
-test('x marks viewed and advances, stays at the last file, and suppresses held-key repeats', () => {
+test('x toggles viewed status, advances only when marking viewed, and suppresses held-key repeats', () => {
   const s = setup();
   const viewed = s.files[0].querySelector('button[aria-pressed]');
   s.press('x');
@@ -79,10 +79,19 @@ test('x marks viewed and advances, stays at the last file, and suppresses held-k
   s.dispatch('x', 'keyup');
   assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
   s.press('x');
-  s.press('x');
   assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'true');
   assert.equal(s.document.activeElement, s.files[1]);
+  s.press('x');
+  assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
+  assert.equal(s.document.activeElement, s.files[1]);
   s.press('k');
+  s.press('x');
+  assert.equal(viewed.getAttribute('aria-pressed'), 'false');
+  assert.equal(s.document.activeElement, s.files[0]);
+  s.dispatch('x', 'keydown', { repeat: true });
+  s.dispatch('x', 'keyup');
+  assert.equal(viewed.getAttribute('aria-pressed'), 'false');
+  assert.equal(s.document.activeElement, s.files[0]);
   s.press('x');
   assert.equal(viewed.getAttribute('aria-pressed'), 'true');
   assert.equal(s.document.activeElement, s.files[1]);
