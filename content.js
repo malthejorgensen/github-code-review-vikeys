@@ -16,7 +16,8 @@
   }
 
   function shouldIgnore(event) {
-    if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.isComposing) return true;
+    if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return true;
+    if (event.shiftKey && !['j', 'k'].includes(event.key.toLowerCase())) return true;
     if (event.composedPath().some(element => element instanceof Element && (
       element.matches('input, textarea, select, [role="textbox"], [role="combobox"]') ||
       element.isContentEditable
@@ -98,15 +99,20 @@
   }
 
   function onKeyDown(event) {
-    if (!KEYS.has(event.key) || !isReviewPage() || shouldIgnore(event)) return;
+    const key = event.shiftKey ? event.key.toLowerCase() : event.key;
+    if (!KEYS.has(key) || !isReviewPage() || shouldIgnore(event)) return;
     const list = files();
     if (!list.length) return;
 
     // Capture on window before document, React, or GitHub hotkey listeners.
-    // Consume repeats too, but only navigation should repeat its action.
+    // Consume repeats too, but only navigation and scrolling repeat their actions.
     intercept(event);
     heldKeys.add(event.code || event.key);
-    if (event.repeat && event.key !== 'j' && event.key !== 'k') return;
+    if (event.shiftKey && (key === 'j' || key === 'k')) {
+      window.scrollBy({ top: key === 'j' ? 100 : -100, behavior: 'instant' });
+      return;
+    }
+    if (event.repeat && key !== 'j' && key !== 'k') return;
 
     if (event.key === 'p') {
       const button = reviewButton();

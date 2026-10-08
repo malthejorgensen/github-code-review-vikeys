@@ -68,6 +68,26 @@ test('j/k navigate adjacent fixture files and clamp at either end', () => {
   s.dom.window.close();
 });
 
+test('Shift+j/k scroll down/up, repeat, and intercept GitHub without navigating files', () => {
+  const s = setup();
+  const scrolls = [];
+  s.window.scrollBy = options => scrolls.push({ ...options });
+  assert.equal(s.press('J', { shiftKey: true }).defaultPrevented, true);
+  s.dispatch('J', 'keydown', { shiftKey: true, repeat: true });
+  // Shift may be released before the letter's keyup.
+  assert.equal(s.dispatch('j', 'keyup').defaultPrevented, true);
+  assert.equal(s.press('K', { shiftKey: true }).defaultPrevented, true);
+  assert.deepEqual(scrolls, [
+    { top: 100, behavior: 'instant' },
+    { top: 100, behavior: 'instant' },
+    { top: -100, behavior: 'instant' },
+  ]);
+  assert.equal(s.document.querySelector('[data-review-vikeys-selected]'), null);
+  assert.equal(s.document.activeElement, s.document.body);
+  assert.deepEqual(s.nativeEvents, []);
+  s.dom.window.close();
+});
+
 test('x toggles viewed status, advances only when marking viewed, and suppresses held-key repeats', () => {
   const s = setup();
   const viewed = s.files[0].querySelector('button[aria-pressed]');
@@ -143,16 +163,20 @@ test('typing, modifiers, composition, other keys, and open dialogs keep normal b
     s.document.body.append(wrapper);
     input.focus();
     for (const key of ['j', 'k', 'x', ' ', 'p']) assert.equal(s.press(key).defaultPrevented, false);
+    for (const key of ['J', 'K']) assert.equal(s.press(key, { shiftKey: true }).defaultPrevented, false);
     wrapper.remove();
   }
-  for (const modifier of ['ctrlKey', 'altKey', 'metaKey', 'shiftKey', 'isComposing']) {
+  for (const modifier of ['ctrlKey', 'altKey', 'metaKey', 'isComposing']) {
     assert.equal(s.press('j', { [modifier]: true }).defaultPrevented, false);
+    assert.equal(s.press('J', { shiftKey: true, [modifier]: true }).defaultPrevented, false);
   }
+  for (const key of ['X', 'P', ' ']) assert.equal(s.press(key, { shiftKey: true }).defaultPrevented, false);
   assert.equal(s.press('q').defaultPrevented, false);
   const dialog = s.document.createElement('dialog');
   dialog.setAttribute('open', '');
   s.document.body.append(dialog);
   assert.equal(s.press('x').defaultPrevented, false);
+  assert.equal(s.press('J', { shiftKey: true }).defaultPrevented, false);
   assert.equal(s.files[0].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
   assert.ok(s.nativeEvents.length > 0);
   s.dom.window.close();

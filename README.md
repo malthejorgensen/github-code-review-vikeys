@@ -14,13 +14,15 @@ A Chrome Manifest V3 extension for GitHub pull request **Files changed** pages (
 | --- | --- |
 | `j` | Move to the next file |
 | `k` | Move to the previous file |
+| Shift+`j` | Scroll down 100 pixels (hold to keep scrolling) |
+| Shift+`k` | Scroll up 100 pixels (hold to keep scrolling) |
 | `x` | Toggle viewed status: marking viewed advances to the next file; marking not viewed stays on the current file |
 | Space | Collapse or expand the current file |
 | `p` | Open GitHub's Submit review dialog |
 
 The current file is determined from focus, a click in a diff, or the top of the viewport. Navigation stops at the first/last file. A blue accent marks the selected file header. Hold `j`/`k` to keep moving.
 
-Shortcuts are paused while typing, while a dialog is open, and when modifier keys are held. The extension clicks GitHub's own controls to preserve its normal saved state and behavior. It opens the review dialog; submit your review using GitHub's controls.
+Shortcuts are paused while typing, while a dialog is open, and when modifier keys are held, except for Shift+`j`/`k`. The extension clicks GitHub's own controls to preserve its normal saved state and behavior. It opens the review dialog; submit your review using GitHub's controls.
 
 The keyboard listener registers on `window` in capture phase at `document_start`, preventing default actions and stopping propagation for handled keys, including keypress/keyup. The script loads throughout github.com so it also works when GitHub navigates into a pull request without a full reload; shortcuts activate only on review pages with rendered diff files. It needs no additional permissions, background service, or build step.
 
