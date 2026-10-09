@@ -22,6 +22,8 @@ A Chrome Manifest V3 extension for GitHub pull request **Files changed** pages (
 
 The initial file is determined from focus, a click in a diff, or the top of the viewport. Once selected, the file is remembered while scrolling or when GitHub replaces its DOM element. Click another diff to change the selection. Navigation stops at the first/last file. A blue accent marks the selected file header. Hold `j`/`k` to keep moving.
 
+For virtualized diffs, navigation scrolls to the current file's boundary and waits up to 1.5 seconds for GitHub to render the neighboring file. If the selected file was unmounted, it first scrolls to its remembered position to restore it. Navigation keystrokes received during that wait are consumed. If no neighbor appears, the selection and previous scroll position are retained. Marking viewed with `x` uses the same navigation behavior.
+
 Shortcuts are paused while typing, while a dialog is open, and when modifier keys are held, except for Shift+`j`/`k`. The extension clicks GitHub's own controls to preserve its normal saved state and behavior. It opens the review dialog; submit your review using GitHub's controls.
 
 The keyboard listener registers on `window` in capture phase at `document_start`, preventing default actions and stopping propagation for handled keys, including keypress/keyup. The script loads throughout github.com so it also works when GitHub navigates into a pull request without a full reload; shortcuts activate only on review pages with rendered diff files. It needs no additional permissions, background service, or build step.

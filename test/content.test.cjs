@@ -13,12 +13,17 @@ function setup() {
   const { document } = window;
   const files = [...document.querySelectorAll('[id^="diff-"][role="region"]')];
   let scroll = 0;
+  Object.defineProperty(window, 'scrollY', { get: () => scroll });
   const positions = [100, 600];
   // jsdom has no layout: emulate two consecutive 500px file regions.
   window.Element.prototype.getClientRects = function () { return this.hidden ? [] : [{}]; };
-  window.HTMLElement.prototype.scrollIntoView = function () { scroll = positions[files.indexOf(this)] - 96; };
+  window.scrollTo = ({ top }) => { scroll = Math.max(0, Math.min(332, top)); };
+  window.HTMLElement.prototype.scrollIntoView = function () {
+    window.scrollTo({ top: positions[files.findIndex(file => file.id === this.id)] - 96 });
+  };
   files.forEach((file, i) => {
     file.getBoundingClientRect = () => ({ top: positions[i] - scroll, bottom: positions[i] + 500 - scroll });
+    file.parentElement.getBoundingClientRect = file.getBoundingClientRect;
     const viewed = file.querySelector('button[aria-pressed]');
     viewed.addEventListener('click', () => {
       viewed.setAttribute('aria-pressed', viewed.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
@@ -51,6 +56,148 @@ function setup() {
   }
   return { dom, window, document, files, nativeEvents, dispatch, press, setScroll: value => { scroll = value; } };
 }
+
+function largeDiffLayout(s) {
+  const entries = s.files.map(file => file.parentElement);
+  s.files.forEach((file, i) => {
+    const top = i === 0 ? 100 : 10100;
+    const bottom = i === 0 ? 10100 : 10600;
+    file.getBoundingClientRect = () => ({ top: top - s.window.scrollY, bottom: bottom - s.window.scrollY });
+    entries[i].getBoundingClientRect = file.getBoundingClientRect;
+  });
+  s.window.scrollTo = ({ top }) => s.setScroll(Math.max(0, top));
+  s.window.HTMLElement.prototype.scrollIntoView = function () {
+    s.window.scrollTo({ top: this.getBoundingClientRect().top + s.window.scrollY - 96 });
+  };
+  return entries;
+}
+
+async function eventually(check) {
+  const deadline = Date.now() + 2200;
+  while (!check() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(check(), 'expected virtualized navigation to complete');
+}
+
+test('j/k reveal virtualized neighbors across a large diff, even when the current file unmounts', async () => {
+  const s = setup();
+  const entries = largeDiffLayout(s);
+  const parent = entries[0].parentElement;
+  entries[1].remove();
+  s.window.scrollTo = ({ top }) => {
+    s.setScroll(Math.max(0, top));
+    if (top >= 10000 && !entries[1].isConnected) {
+      entries[0].remove();
+      s.window.setTimeout(() => parent.append(entries[1]), 30);
+    } else if (top < 10000 && !entries[0].isConnected) {
+      s.window.setTimeout(() => parent.prepend(entries[0]), 30);
+    }
+  };
+  s.files[0].dispatchEvent(new s.window.Event('pointerdown', { bubbles: true }));
+  assert.equal(s.press('j').defaultPrevented, true);
+  s.dispatch('j', 'keydown', { repeat: true });
+  s.dispatch('j', 'keyup');
+  await eventually(() => s.document.activeElement === s.files[1]);
+  assert.ok(s.window.scrollY >= 10000);
+  s.press('k');
+  await eventually(() => s.document.activeElement === s.files[0]);
+  assert.ok(s.files[0].hasAttribute('data-review-vikeys-selected'));
+  assert.deepEqual(s.nativeEvents, []);
+  s.dom.window.close();
+});
+
+test('navigation restores an unmounted remembered file before finding its neighbor', async () => {
+  const s = setup();
+  const entries = largeDiffLayout(s);
+  const parent = entries[0].parentElement;
+  s.press('j');
+  entries[0].remove();
+  entries[1].remove();
+  s.setScroll(0);
+  let restored = false;
+  s.window.scrollTo = ({ top }) => {
+    s.setScroll(Math.max(0, top));
+    if (top >= 10000 && !entries[1].isConnected) {
+      restored = true;
+      s.window.setTimeout(() => parent.append(...entries), 30);
+    }
+  };
+  assert.equal(s.press('k').defaultPrevented, true);
+  await eventually(() => s.document.activeElement === s.files[0]);
+  assert.equal(restored, true);
+  assert.deepEqual(s.nativeEvents, []);
+  s.dom.window.close();
+});
+
+test('x auto-advance waits for an unmounted next file', async () => {
+  const s = setup();
+  const entries = largeDiffLayout(s);
+  const parent = entries[0].parentElement;
+  entries[1].remove();
+  s.window.scrollTo = ({ top }) => {
+    s.setScroll(Math.max(0, top));
+    if (top >= 10000 && !entries[1].isConnected) s.window.setTimeout(() => parent.append(entries[1]), 30);
+  };
+  s.press('x');
+  assert.equal(s.files[0].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'true');
+  await eventually(() => s.document.activeElement === s.files[1]);
+  assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
+  s.dom.window.close();
+});
+
+test('navigation scrolls an empty file wrapper into view before selecting its mounted diff', async () => {
+  const s = setup();
+  const entries = largeDiffLayout(s);
+  const second = s.files[1];
+  second.remove();
+  s.window.scrollTo = ({ top }) => {
+    s.setScroll(Math.max(0, top));
+    if (top >= 10000 && !second.isConnected) s.window.setTimeout(() => entries[1].append(second), 30);
+  };
+  s.press('j');
+  await eventually(() => s.document.activeElement === second);
+  assert.ok(second.hasAttribute('data-review-vikeys-selected'));
+  s.dom.window.close();
+});
+
+test('navigation timeout keeps selection and restores the previous scroll position', async () => {
+  const s = setup();
+  const entries = largeDiffLayout(s);
+  entries[1].remove();
+  s.press('j');
+  assert.ok(s.window.scrollY >= 10000);
+  await eventually(() => s.window.scrollY === 0);
+  assert.ok(s.files[0].hasAttribute('data-review-vikeys-selected'));
+  assert.deepEqual(s.nativeEvents, []);
+  s.dom.window.close();
+});
+
+test('SPA navigation cancels pending virtualized navigation without moving the new page', async () => {
+  const s = setup();
+  const entries = largeDiffLayout(s);
+  const parent = entries[0].parentElement;
+  entries[1].remove();
+  s.press('j');
+  s.window.history.pushState({}, '', '/example/repo/pull/2/files');
+  s.setScroll(123);
+  parent.append(entries[1]);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(s.window.scrollY, 123);
+  assert.equal(s.document.querySelector('[data-review-vikeys-selected]'), null);
+  s.dom.window.close();
+});
+
+test('manual scrolling cancels a pending jump while preserving the remembered file', async () => {
+  const s = setup();
+  const entries = largeDiffLayout(s);
+  entries[1].remove();
+  s.press('j');
+  s.window.dispatchEvent(new s.window.Event('wheel'));
+  s.setScroll(500);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(s.window.scrollY, 500);
+  assert.ok(s.files[0].hasAttribute('data-review-vikeys-selected'));
+  s.dom.window.close();
+});
 
 test('j/k navigate adjacent fixture files and clamp at either end', () => {
   const s = setup();
@@ -212,11 +359,12 @@ test('typing, modifiers, composition, other keys, and open dialogs keep normal b
   s.dom.window.close();
 });
 
-test('click and manual scroll select the intended file, including collapsed files', () => {
+test('click and manual scroll select the intended file, including collapsed files', async () => {
   const s = setup();
   s.files[1].dispatchEvent(new s.window.Event('pointerdown', { bubbles: true }));
   s.press('x');
   assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'true');
+  await new Promise(resolve => setTimeout(resolve, 1600));
   s.window.dispatchEvent(new s.window.Event('wheel'));
   s.setScroll(510);
   s.press(' ');
@@ -240,6 +388,7 @@ test('SPA navigation, DOM replacement, and empty review pages are handled withou
   s.press('x');
   assert.equal(clicks, 1);
   s.document.body.innerHTML = '';
+  s.window.history.pushState({}, '', '/example/repo/pull/3/files');
   assert.equal(s.press('j').defaultPrevented, false);
   s.dom.window.close();
 });

@@ -5,6 +5,8 @@
   const KEYS = new Set(["j", "k", "x", " ", "p"]);
   const heldKeys = new Set();
   let selectedId = null;
+  let selectedTop = null;
+  let pendingNavigation = null;
   let reviewLocation = location.pathname + location.search;
 
   function resetForNavigation() {
@@ -12,6 +14,8 @@
     if (nextLocation === reviewLocation) return;
     reviewLocation = nextLocation;
     selectedId = null;
+    selectedTop = null;
+    pendingNavigation = null;
     document.querySelectorAll('[data-review-vikeys-selected]').forEach(element => {
       element.removeAttribute('data-review-vikeys-selected');
     });
@@ -66,6 +70,7 @@
       element.removeAttribute('data-review-vikeys-selected');
     });
     selectedId = file.id;
+    selectedTop = file.getBoundingClientRect().top + window.scrollY;
     file.setAttribute('data-review-vikeys-selected', '');
     if (scroll) {
       file.style.scrollMarginTop = `${topOffset(file)}px`;
@@ -74,6 +79,132 @@
       if (!file.hasAttribute('tabindex')) file.setAttribute('tabindex', '-1');
       file.focus({ preventScroll: true });
     }
+  }
+
+  function navigationActive(task) {
+    return pendingNavigation === task && location.pathname + location.search === task.location;
+  }
+
+  // Allow React time to mount a virtualized file after scrolling to it.
+  async function waitForFile(find, task) {
+    const deadline = Date.now() + 1500;
+    while (navigationActive(task)) {
+      const file = find();
+      if (file) return file;
+      if (Date.now() >= deadline) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return null;
+  }
+
+  async function restoreCurrent(task) {
+    const list = files();
+    if (!selectedId) {
+      const current = currentFile(list);
+      if (current) select(current);
+      return current;
+    }
+    const mounted = list.find(file => file.id === selectedId);
+    if (mounted) {
+      select(mounted);
+      return mounted;
+    }
+    // Never substitute the first rendered diff for the remembered file.
+    const id = selectedId;
+    if (selectedTop === null) return null;
+    window.scrollTo({ top: Math.max(0, selectedTop - 96), behavior: 'instant' });
+    const restored = await waitForFile(() => files().find(file => file.id === id), task);
+    if (restored && navigationActive(task)) select(restored);
+    return restored;
+  }
+
+  function moveFile(current, direction, task, savedBounds) {
+    const list = files();
+    const index = list.findIndex(file => file.id === current.id);
+    const adjacent = index >= 0 ? list[index + direction] : null;
+    // GitHub can leave an empty wrapper for the next unmounted diff.
+    const entry = current.closest('[data-sticky-enabled]') || current;
+    const sibling = direction > 0 ? entry.nextElementSibling : entry.previousElementSibling;
+    const placeholder = sibling && !sibling.matches(FILE_SELECTOR) && !sibling.querySelector(FILE_SELECTOR) &&
+      (sibling.hasAttribute('data-sticky-enabled') || sibling.hasAttribute('data-estimated-height'));
+    if (adjacent && !placeholder) {
+      select(adjacent, true);
+      return;
+    }
+
+    const id = current.id;
+    const beforeScroll = window.scrollY;
+    const rect = current.isConnected ? entry.getBoundingClientRect() : {
+      top: savedBounds.top - beforeScroll,
+      bottom: savedBounds.bottom - beforeScroll,
+    };
+    const boundary = (direction > 0 ? rect.bottom : rect.top) + beforeScroll;
+    if (placeholder) {
+      sibling.style.scrollMarginTop = `${topOffset(current)}px`;
+      sibling.scrollIntoView({ block: 'start', behavior: 'instant' });
+    } else {
+      // Jump over a large diff instead of scrolling through every line.
+      const target = direction > 0 ? boundary - topOffset(current) + 1 : boundary - innerHeight;
+      window.scrollTo({ top: Math.max(0, target), behavior: 'instant' });
+    }
+    if (!placeholder && window.scrollY === beforeScroll) {
+      select(current, true);
+      return;
+    }
+    return (async () => {
+      const next = await waitForFile(() => {
+        if (placeholder && sibling.isConnected) return sibling.querySelector(FILE_SELECTOR);
+        const rendered = files();
+        const currentIndex = rendered.findIndex(file => file.id === id);
+        if (currentIndex >= 0) return rendered[currentIndex + direction];
+        // The old file may disappear once its neighbor enters the viewport.
+        const candidates = rendered.filter(file => {
+          const bounds = file.getBoundingClientRect();
+          return file.id !== id && (direction > 0
+            ? bounds.top + window.scrollY >= boundary - 1
+            : bounds.bottom + window.scrollY <= boundary + 1);
+        });
+        return direction > 0 ? candidates[0] : candidates.at(-1);
+      }, task);
+      if (!navigationActive(task)) return;
+      if (next) select(next, true);
+      else {
+        // End of the list or a render timeout: retain selection and scroll position.
+        window.scrollTo({ top: beforeScroll, behavior: 'instant' });
+        const mounted = files().find(file => file.id === id);
+        if (mounted) select(mounted);
+      }
+    })();
+  }
+
+  function navigate(direction, markViewed = false) {
+    const task = { location: reviewLocation };
+    pendingNavigation = task;
+    const run = async () => {
+      try {
+        // Keep the already-mounted path synchronous for fast repeated j/k.
+        const mounted = files().find(file => file.id === selectedId);
+        const current = mounted || await restoreCurrent(task);
+        if (!current || !navigationActive(task)) return;
+        select(current);
+        const bounds = (current.closest('[data-sticky-enabled]') || current).getBoundingClientRect();
+        const savedBounds = { top: bounds.top + window.scrollY, bottom: bounds.bottom + window.scrollY };
+        if (markViewed) {
+          const button = viewedButton(current);
+          if (!button || button.disabled) return;
+          const wasViewed = button.getAttribute('aria-pressed') === 'true';
+          button.click();
+          if (wasViewed) return;
+        }
+        // Viewed may replace/collapse the current file before navigation.
+        const updated = files().find(file => file.id === current.id) || current;
+        const moving = moveFile(updated, direction, task, savedBounds);
+        if (moving) await moving;
+      } finally {
+        if (pendingNavigation === task) pendingNavigation = null;
+      }
+    };
+    void run();
   }
 
   function accessibleLabel(button) {
@@ -111,18 +242,21 @@
     const key = event.shiftKey ? event.key.toLowerCase() : event.key;
     if (!KEYS.has(key) || !isReviewPage() || shouldIgnore(event)) return;
     const list = files();
-    if (!list.length) return;
+    if (!list.length && selectedId === null) return;
 
     // Capture on window before document, React, or GitHub hotkey listeners.
     // Consume repeats too, but only navigation and scrolling repeat their actions.
     intercept(event);
     heldKeys.add(event.code || event.key);
     if (event.shiftKey && (key === 'j' || key === 'k')) {
-      select(currentFile(list));
+      pendingNavigation = null;
+      const current = list.find(file => file.id === selectedId) || (!selectedId && currentFile(list));
+      if (current) select(current);
       window.scrollBy({ top: key === 'j' ? 100 : -100, behavior: 'instant' });
       return;
     }
     if (event.repeat && key !== 'j' && key !== 'k') return;
+    if (pendingNavigation) return;
 
     if (event.key === 'p') {
       const button = reviewButton();
@@ -130,26 +264,19 @@
       return;
     }
 
-    const current = currentFile(list);
     if (event.key === 'j' || event.key === 'k') {
-      select(current);
-      const next = Math.max(0, Math.min(list.length - 1, list.indexOf(current) + (event.key === 'j' ? 1 : -1)));
-      select(list[next], true);
+      if (!selectedId) select(currentFile(list));
+      navigate(event.key === 'j' ? 1 : -1);
       return;
     }
 
-    select(current);
     if (event.key === 'x') {
-      const button = viewedButton(current);
-      if (!button || button.disabled) return;
-      const wasViewed = button.getAttribute('aria-pressed') === 'true';
-      const nextId = list[list.indexOf(current) + 1]?.id;
-      button.click();
-      if (wasViewed) return;
-      // Clicking Viewed can rerender the diff, so resolve the next file again.
-      const next = nextId && files().find(file => file.id === nextId);
-      if (next) select(next, true);
+      if (!selectedId) select(currentFile(list));
+      navigate(1, true);
     } else if (event.key === ' ') {
+      const current = list.find(file => file.id === selectedId) || (!selectedId && currentFile(list));
+      if (!current) return;
+      select(current);
       const button = collapseButton(current);
       if (button && !button.disabled) button.click();
     }
@@ -168,12 +295,17 @@
   }
   window.addEventListener('blur', () => heldKeys.clear());
   window.addEventListener('pointerdown', event => {
+    pendingNavigation = null;
     const file = event.target instanceof Element ? event.target.closest(FILE_SELECTOR) : null;
     if (file) {
       resetForNavigation();
       select(file);
     }
   }, true);
+  for (const type of ['wheel', 'touchmove']) {
+    // Manual scrolling cancels an in-flight jump, but preserves the selection.
+    window.addEventListener(type, () => { pendingNavigation = null; }, { passive: true });
+  }
   // React may replace a file element and drop our marker while keeping its ID.
   const pageDocument = document;
   new MutationObserver(() => {
