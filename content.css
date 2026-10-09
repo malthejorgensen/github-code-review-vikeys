@@ -1,3 +1,20 @@
-[data-review-vikeys-selected] [data-diff-header-wrapper] {
-  box-shadow: inset 3px 0 0 var(--fgColor-accent, #0969da);
+[data-review-vikeys-selected] {
+  outline: 2px solid #54aeff;
+  outline-offset: -2px;
+}
+
+/* Keep GitHub's sticky wrapper positioning; place the ring on its header. */
+[data-review-vikeys-selected] [data-diff-header-wrapper] > div:first-child {
+  position: relative;
+}
+
+/* Paint above the header contents so their background cannot cover the ring. */
+[data-review-vikeys-selected] [data-diff-header-wrapper] > div:first-child::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 3px solid #54aeff;
+  border-radius: var(--borderRadius-medium, 6px);
+  pointer-events: none;
 }
