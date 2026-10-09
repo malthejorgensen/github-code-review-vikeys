@@ -20,7 +20,7 @@ A Chrome Manifest V3 extension for GitHub pull request **Files changed** pages (
 | Space | Collapse or expand the current file |
 | `p` | Open GitHub's Submit review dialog |
 
-The current file is determined from focus, a click in a diff, or the top of the viewport. Navigation stops at the first/last file. A blue accent marks the selected file header. Hold `j`/`k` to keep moving.
+The initial file is determined from focus, a click in a diff, or the top of the viewport. Once selected, the file is remembered while scrolling or when GitHub replaces its DOM element. Click another diff to change the selection. Navigation stops at the first/last file. A blue accent marks the selected file header. Hold `j`/`k` to keep moving.
 
 Shortcuts are paused while typing, while a dialog is open, and when modifier keys are held, except for Shift+`j`/`k`. The extension clicks GitHub's own controls to preserve its normal saved state and behavior. It opens the review dialog; submit your review using GitHub's controls.
 

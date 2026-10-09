@@ -5,6 +5,17 @@
   const KEYS = new Set(["j", "k", "x", " ", "p"]);
   const heldKeys = new Set();
   let selectedId = null;
+  let reviewLocation = location.pathname + location.search;
+
+  function resetForNavigation() {
+    const nextLocation = location.pathname + location.search;
+    if (nextLocation === reviewLocation) return;
+    reviewLocation = nextLocation;
+    selectedId = null;
+    document.querySelectorAll('[data-review-vikeys-selected]').forEach(element => {
+      element.removeAttribute('data-review-vikeys-selected');
+    });
+  }
 
   // Recheck the URL and DOM on each key: GitHub navigates without reloading.
   function isReviewPage() {
@@ -40,10 +51,7 @@
 
   function currentFile(list) {
     const selected = list.find(file => file.id === selectedId);
-    if (selected) {
-      const rect = selected.getBoundingClientRect();
-      if (rect.bottom > topOffset(selected) && rect.top < innerHeight) return selected;
-    }
+    if (selected) return selected;
     const focused = document.activeElement?.closest(FILE_SELECTOR);
     if (list.includes(focused)) {
       const rect = focused.getBoundingClientRect();
@@ -99,6 +107,7 @@
   }
 
   function onKeyDown(event) {
+    resetForNavigation();
     const key = event.shiftKey ? event.key.toLowerCase() : event.key;
     if (!KEYS.has(key) || !isReviewPage() || shouldIgnore(event)) return;
     const list = files();
@@ -109,6 +118,7 @@
     intercept(event);
     heldKeys.add(event.code || event.key);
     if (event.shiftKey && (key === 'j' || key === 'k')) {
+      select(currentFile(list));
       window.scrollBy({ top: key === 'j' ? 100 : -100, behavior: 'instant' });
       return;
     }
@@ -122,6 +132,7 @@
 
     const current = currentFile(list);
     if (event.key === 'j' || event.key === 'k') {
+      select(current);
       const next = Math.max(0, Math.min(list.length - 1, list.indexOf(current) + (event.key === 'j' ? 1 : -1)));
       select(list[next], true);
       return;
@@ -157,14 +168,18 @@
   }
   window.addEventListener('blur', () => heldKeys.clear());
   window.addEventListener('pointerdown', event => {
-    selectedId = event.target instanceof Element ? event.target.closest(FILE_SELECTOR)?.id || null : null;
+    const file = event.target instanceof Element ? event.target.closest(FILE_SELECTOR) : null;
+    if (file) {
+      resetForNavigation();
+      select(file);
+    }
   }, true);
-  for (const type of ['wheel', 'touchmove']) {
-    window.addEventListener(type, () => {
-      selectedId = null;
-      if (document.activeElement?.matches(`${FILE_SELECTOR}[data-review-vikeys-selected]`)) {
-        document.activeElement.blur();
-      }
-    }, { passive: true });
-  }
+  // React may replace a file element and drop our marker while keeping its ID.
+  const pageDocument = document;
+  new MutationObserver(() => {
+    if (!pageDocument.defaultView?.document) return;
+    resetForNavigation();
+    const selected = selectedId && document.getElementById(selectedId);
+    if (selected?.matches(FILE_SELECTOR)) selected.setAttribute('data-review-vikeys-selected', '');
+  }).observe(document, { childList: true, subtree: true });
 })();

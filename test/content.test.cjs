@@ -82,7 +82,7 @@ test('Shift+j/k scroll down/up, repeat, and intercept GitHub without navigating 
     { top: 100, behavior: 'instant' },
     { top: -100, behavior: 'instant' },
   ]);
-  assert.equal(s.document.querySelector('[data-review-vikeys-selected]'), null);
+  assert.equal(s.document.querySelector('[data-review-vikeys-selected]'), s.files[0]);
   assert.equal(s.document.activeElement, s.document.body);
   assert.deepEqual(s.nativeEvents, []);
   s.dom.window.close();
@@ -130,6 +130,36 @@ test('Space clicks collapse and expand without toggling on held-key repeats', ()
   s.press(' ');
   assert.equal(tooltip.textContent, 'Collapse file');
   assert.deepEqual(s.nativeEvents, []);
+  s.dom.window.close();
+});
+
+test('selection survives scrolling out of view, lost focus, and React replacement', async () => {
+  const s = setup();
+  s.press('j');
+  const replacement = s.files[1].cloneNode(true);
+  replacement.removeAttribute('data-review-vikeys-selected');
+  replacement.getBoundingClientRect = s.files[1].getBoundingClientRect;
+  s.files[1].replaceWith(replacement);
+  s.setScroll(3000);
+  await Promise.resolve();
+  assert.ok(replacement.hasAttribute('data-review-vikeys-selected'));
+  s.press('k');
+  assert.equal(s.document.activeElement, s.files[0]);
+  assert.deepEqual(s.nativeEvents, []);
+  s.dom.window.close();
+});
+
+test('scrolling keeps selection until another diff is clicked', () => {
+  const s = setup();
+  s.press('j');
+  s.window.dispatchEvent(new s.window.Event('wheel'));
+  s.setScroll(0);
+  s.press('x');
+  assert.equal(s.files[1].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'true');
+  assert.equal(s.files[0].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'false');
+  s.files[0].dispatchEvent(new s.window.Event('pointerdown', { bubbles: true }));
+  s.press('x');
+  assert.equal(s.files[0].querySelector('button[aria-pressed]').getAttribute('aria-pressed'), 'true');
   s.dom.window.close();
 });
 
